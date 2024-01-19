@@ -1,9 +1,10 @@
 from aiogram import types
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.filters import Command
 from context.login_set import LoginSet
 from aiogram.fsm.context import FSMContext
 from config import db
+from keyboard.markup import start_session, end_session
 from service.mt5 import connect
 
 router = Router()
@@ -48,13 +49,13 @@ async def deposite(message: types.Message, state: FSMContext):
     try:
         # db.query("INSERT INTO users (ID, login, password, server, deposite, connect) VALUES (?, ?, ?, ?, ?, ?)",
         #          (int(message.from_user.id), data['login'], data['password'], data['server'], int(message.text), False))
-        await message.answer("Выполняется подключение...")
+        connecting_message = await message.answer("Выполняется подключение...")
         try:
             login = int(data['login'])
             password = str(data['password'])
             server = str(data['server'])
             if connect(account=login, password=password, server=server):
-                await message.answer("Подключено!")
+                await connecting_message.edit_text("Подключено!", reply_markup=start_session())
                 await state.clear()
             else:
                 await message.answer("Нет подключения!\n"
@@ -71,4 +72,16 @@ async def deposite(message: types.Message, state: FSMContext):
                              f"\n"
                              f"Перезапустите бота /start")
         await state.clear()
+
+
+@router.callback_query(F.data == 'start_session')
+async def start_session_command(call: types.CallbackQuery):
+    await call.message.edit_text("Сессия открыта", reply_markup=end_session())
+
+
+@router.callback_query(F.data == 'end_session')
+async def end_session_command(call: types.CallbackQuery):
+    await call.message.edit_text("Текущая сессия закрыта\n"
+                                 "\n"
+                                 "Чтоб начать новую сессию нажмите кнопку ниже", reply_markup=start_session())
 
