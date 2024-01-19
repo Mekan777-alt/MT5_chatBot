@@ -1,7 +1,7 @@
 from aiogram import types
 from aiogram import Router, F
 from aiogram.filters import Command
-from context.login_set import LoginSet
+from context.login_set import LoginSet, DepositSet
 from aiogram.fsm.context import FSMContext
 from config import db
 from keyboard.markup import start_session, end_session
@@ -39,12 +39,6 @@ async def password(message: types.Message, state: FSMContext):
 async def broker(message: types.Message, state: FSMContext):
     await state.update_data(server=message.text)
 
-    await message.answer("Введите депозит")
-    await state.set_state(LoginSet.deposite)
-
-
-@router.message(LoginSet.deposite)
-async def deposite(message: types.Message, state: FSMContext):
     data = await state.get_data()
     try:
         # db.query("INSERT INTO users (ID, login, password, server, deposite, connect) VALUES (?, ?, ?, ?, ?, ?)",
@@ -75,8 +69,20 @@ async def deposite(message: types.Message, state: FSMContext):
 
 
 @router.callback_query(F.data == 'start_session')
-async def start_session_command(call: types.CallbackQuery):
-    await call.message.edit_text("Сессия открыта", reply_markup=end_session())
+async def start_session_command(call: types.CallbackQuery, state: FSMContext):
+    await call.message.edit_text("Введите размер депозита")
+
+    await state.set_state(DepositSet.deposit)
+
+
+@router.message(DepositSet.deposit)
+async def deposit_set(message: types.Message, state: FSMContext):
+    await state.update_data(deposit=message.text)
+    await message.answer(f"Принято\n"
+                         f"\n"
+                         f"Торговая сессия открыта на сумму {message.text}$", reply_markup=end_session())
+
+    await state.clear()
 
 
 @router.callback_query(F.data == 'end_session')

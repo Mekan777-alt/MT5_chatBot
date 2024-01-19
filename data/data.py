@@ -16,13 +16,13 @@ class Database(object):
             'telegram_id INTEGER,'
             'mt5_login TEXT,'
             'mt5_password TEXT,'
-            'mt5_server TEXT,'
-            'initial_deposit INTEGER)')
+            'mt5_server TEXT)')
         self.query(
             'CREATE TABLE IF NOT EXISTS session_results ('
             'id INTEGER PRIMARY KEY,'
             'user_id INTEGER,'
             'session_start_time TEXT,'
+            'initial_deposit INTEGER,'
             'total_profit_percentage REAL)')
         self.query(
             'CREATE TABLE IF NOT EXISTS deals ('
