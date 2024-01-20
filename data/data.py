@@ -27,9 +27,9 @@ class Database(object):
         self.query(
             'CREATE TABLE IF NOT EXISTS deals ('
             'id INTEGER PRIMARY KEY,'
-            'user_id INTEGER,'
-            'open_time TEXT,'
-            'close_time TEXT,'
+            'ticket TEXT,'
+            'open_time DATE,'
+            'update_time DATE,'
             'symbol TEXT,'
             'volume INTEGER,'
             'profit_percentage REAL,'

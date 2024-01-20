@@ -1,11 +1,13 @@
+import asyncio
+from datetime import datetime
 from aiogram import types
 from aiogram import Router, F
 from aiogram.filters import Command
 from context.login_set import LoginSet, DepositSet
 from aiogram.fsm.context import FSMContext
-from config import db
+from config import db, scheduler
 from keyboard.markup import start_session, end_session
-from service.mt5 import connect
+from service.mt5 import connect, position_get
 
 router = Router()
 
@@ -81,6 +83,10 @@ async def deposit_set(message: types.Message, state: FSMContext):
     await message.answer(f"Принято\n"
                          f"\n"
                          f"Торговая сессия открыта на сумму {message.text}$", reply_markup=end_session())
+    db.query("INSERT INTO session_results (user_id, session_start_time, initial_deposit) VALUES (?, ?, ?)",
+             (message.from_user.id, datetime.now(), message.text))
+
+    scheduler.add_job(position_get, "interval", seconds=5)
 
     await state.clear()
 
