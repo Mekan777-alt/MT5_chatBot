@@ -1,6 +1,9 @@
 from datetime import datetime
 import MetaTrader5 as mt5
-from config import db
+from sqlalchemy.exc import NoResultFound
+
+from config import db_session
+from data.models import Ticket, Deal, Profit
 
 
 def initialize_mt5():
@@ -34,39 +37,95 @@ def connect(account, server, password):
     return False
 
 
-async def create_and_check_position(positon):
-    ticket = positon[0]
+async def create_and_check_position(position):
+    ticket = position[0]
 
-    date_db = positon[1]
-    formatted_date_db = datetime.utcfromtimestamp(date_db).strftime('%Y-%m-%d %H:%M:%S UTC')
+    date_db = position[1]
+    formatted_date_db = datetime.utcfromtimestamp(date_db)
 
-    update_date = positon[3]
-    formatted_update_date = datetime.utcfromtimestamp(update_date).strftime('%Y-%m-%d %H:%M:%S UTC')
+    update_date = position[3]
+    formatted_update_date = datetime.utcfromtimestamp(update_date)
 
-    volume = positon[9]
+    volume = position[9]
+    try:
+        ticket_object = db_session.query(Ticket).filter_by(ticket=ticket).first()
 
-    ticket_db = db.fetchone("SELECT ticket, open_time, update_time, volume FROM deals WHERE ticket=? AND update_time=?",
-                            (ticket, formatted_update_date))
-    print(ticket_db)
+        if not ticket_object:
 
-    if ticket_db and int(ticket_db[3]) != int(volume):
-        # Добавить новую запись только если объем изменился
-        db.query("INSERT INTO deals (ticket, open_time, update_time, symbol, volume, profit_percentage) "
-                 "VALUES (?, ?, ?, ?, ?, ?)",
-                 (str(positon[0]), formatted_date_db, formatted_update_date, str(positon[16]), int(positon[9]),
-                  float(positon[15])))
-    elif not ticket_db:
-        # Добавить новую запись, если запись с таким тикетом и временем обновления не существует
-        db.query("INSERT INTO deals (ticket, open_time, update_time, symbol, volume, profit_percentage) "
-                 "VALUES (?, ?, ?, ?, ?, ?)",
-                 (str(positon[0]), formatted_date_db, formatted_update_date, str(positon[16]), int(positon[9]),
-                  float(positon[15])))
+            ticket_object = Ticket(ticket=ticket)
+            db_session.add(ticket_object)
+
+            db_session.commit()
+        ticket_id = ticket_object.id
+
+        deal_object = db_session.query(Deal).filter_by(
+            open_time=formatted_date_db,
+            update_time=formatted_update_date,
+            symbol=str(position[16]),
+            volume=int(volume),
+            ticket_id=ticket_id
+        ).first()
+
+        if deal_object is not None and (deal_object.volume is not None and int(deal_object.volume) != int(volume)):
+            deal_object = Deal(
+                open_time=formatted_date_db,
+                update_time=formatted_update_date,
+                symbol=str(position[16]),
+                volume=int(deal_object.volume - volume),
+                ticket_id=ticket_id
+            )
+            db_session.add(deal_object)
+
+            db_session.commit()
+            print("Записал в deal из-за volume")
+
+        if not deal_object:
+            deal_object = Deal(
+                open_time=formatted_date_db,
+                update_time=formatted_update_date,
+                symbol=str(position[16]),
+                volume=int(volume),
+                ticket_id=ticket_id
+            )
+            db_session.add(deal_object)
+
+            db_session.commit()
+            print("Записал в deal")
+
+        deal_id = deal_object.id
+
+        profit_object = db_session.query(Profit).filter_by(
+                ticket_id=ticket_id,
+                deal_id=deal_id
+            ).first()
+
+        if not profit_object:
+            profit_object = Profit(
+                ticket_id=ticket_id,
+                deal_id=deal_id,
+                profit=float(position[15])
+            )
+            db_session.add(profit_object)
+            db_session.commit()
+        else:
+            # Если profit_object существует, обновите его значение
+            profit_object.profit = float(position[15])
+            db_session.commit()
+            print("Обновил значение")
+    except NoResultFound:
+        print("Ошибка: Не найдена запись")
+        db_session.rollback()
+
 
 async def position_get():
-    positions = mt5.positions_get()
-    if positions is None:
-        print("No orders on error code={}".format(mt5.last_error()))
-    elif len(positions) > 0:
-        for position in positions:
-            print(position)
-            await create_and_check_position(position)
+    try:
+        positions = mt5.positions_get()
+        if positions is None:
+            # тут происходит проверка закрыта ли сделка
+            print("No orders on error code={}".format(mt5.last_error()))
+        elif len(positions) > 0:
+            for position in positions:
+                print(position)
+                await create_and_check_position(position)
+    except Exception as e:
+        print(f"An error occurred in position_get: {e}")

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from config import bot, dp, db, scheduler
+from config import bot, dp, scheduler
 from handler import start
 
 
@@ -13,7 +13,6 @@ async def main():
         level=logging.INFO
     )
     dp.include_router(start.router)
-    db.create_tables()
     await bot.delete_webhook(drop_pending_updates=True)
     scheduler.start()
     await asyncio.sleep(1)
