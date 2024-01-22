@@ -1,11 +1,10 @@
-import asyncio
-from datetime import datetime
+from data.models import User
 from aiogram import types
 from aiogram import Router, F
 from aiogram.filters import Command
 from context.login_set import LoginSet, DepositSet
 from aiogram.fsm.context import FSMContext
-from config import scheduler
+from config import scheduler, db_session
 from keyboard.markup import start_session, end_session
 from service.mt5 import connect, position_get
 
@@ -43,8 +42,15 @@ async def broker(message: types.Message, state: FSMContext):
 
     data = await state.get_data()
     try:
-        # db.query("INSERT INTO users (ID, login, password, server, deposite, connect) VALUES (?, ?, ?, ?, ?, ?)",
-        #          (int(message.from_user.id), data['login'], data['password'], data['server'], int(message.text), False))
+        user = db_session.query(User).filter_by(telegram_id=int(message.from_user.id)).first()
+        if not user:
+            add_user = User(telegram_id=message.from_user.id)
+            db_session.add(add_user)
+            db_session.commit()
+        else:
+            user.telegram_id = message.from_user.id
+            db_session.commit()
+
         connecting_message = await message.answer("Выполняется подключение...")
         try:
             login = int(data['login'])
@@ -80,6 +86,10 @@ async def start_session_command(call: types.CallbackQuery, state: FSMContext):
 @router.message(DepositSet.deposit)
 async def deposit_set(message: types.Message, state: FSMContext):
     await state.update_data(deposit=message.text)
+    user = db_session.query(User).filter_by(telegram_id=message.from_user.id).first()
+    if user:
+        user.deposit = message.text
+        db_session.commit()
     await message.answer(f"Принято\n"
                          f"\n"
                          f"Торговая сессия открыта на сумму {message.text}$", reply_markup=end_session())

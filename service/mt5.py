@@ -1,7 +1,8 @@
 import MetaTrader5 as mt5
 from sqlalchemy.exc import NoResultFound
-from config import db_session, session_start_time
+from config import db_session
 from data.models import Ticket, User
+from datetime import datetime
 
 
 def initialize_mt5():
@@ -67,15 +68,12 @@ async def position_get():
         for pos in all_position:
             closed_orders = mt5.history_deals_get(position=pos.position)
             if len(closed_orders) > 1:
-                await process_closed_orders(closed_orders, session_start_time)
+                await process_closed_orders(closed_orders)
     except Exception as e:
         print(f"An error occurred in position_get: {e}")
 
 
-
-from datetime import datetime, timedelta
-
-async def process_closed_orders(orders, session_start_time):
+async def process_closed_orders(orders):
     # Создаем словарь для хранения открытых сделок по инструментам (symbol)
     open_trades = {}
     session_profit = 0  # Общий процент прибыли с начала сессии
@@ -89,6 +87,9 @@ async def process_closed_orders(orders, session_start_time):
         time = order[2]  # Время сделки (timestamp)
 
         ticket_to_delete = db_session.query(Ticket).filter_by(position=order[7]).first()
+        deposit_db = db_session.query(User).first().deposit
+
+        print(deposit_db)
 
         if trade_type == 0:  # Открытие сделки
             if ticket not in open_trades:
@@ -106,7 +107,8 @@ async def process_closed_orders(orders, session_start_time):
                     if volume <= remaining_buy_volume:
                         open_trade['sell_volume'] += volume
                         # Рассчитываем процент прибыли
-                        profit_percentage = 100 * float(profit) / 1000
+
+                        profit_percentage = 100 * float(profit) / deposit_db
                         open_trade['total_profit'] += profit_percentage
                         session_profit += profit_percentage
 
@@ -127,7 +129,7 @@ async def process_closed_orders(orders, session_start_time):
                         open_trade['sell_volume'] += volume_to_close
                         volume -= volume_to_close
                         # Рассчитываем процент прибыли для части сделки
-                        profit_percentage_for_part = 100 * float(profit) / 1000
+                        profit_percentage_for_part = 100 * float(profit) / deposit_db
                         open_trade['total_profit'] += profit_percentage_for_part
                         session_profit += profit_percentage_for_part
 
@@ -148,7 +150,7 @@ async def process_closed_orders(orders, session_start_time):
                                 'open_time': datetime.fromtimestamp(time)
                             }
                             # Рассчитываем процент прибыли для оставшейся части
-                            profit_percentage_for_remaining = 100 * float(profit) / 1000
+                            profit_percentage_for_remaining = 100 * float(profit) / deposit_db
                             open_trades[new_ticket]['total_profit'] += profit_percentage_for_remaining
                             session_profit += profit_percentage_for_remaining
 
@@ -169,63 +171,3 @@ async def get_all_tickets_from_database():
     except Exception as e:
         print(f"Произошла ошибка при запросе всех тикетов из базы данных: {e}")
         return []
-
-
-
-# ПРОХОДИТ ПО 3 ТЕСТАМ
-# async def process_closed_orders(orders):
-#     # Создаем словарь для хранения открытых сделок по инструментам (symbol)
-#     open_trades = {}
-#
-#     for order in orders:
-#         ticket = order[0]  # Уникальный идентификатор сделки (ticket)
-#         symbol = order[15]  # Символ (название инструмента)
-#         trade_type = order[4] # Тип сделки (0 - открытие, 1 - закрытие)
-#         volume = order[9]  # Объем сделки
-#         profit = order[13]  # Прибыль
-#         time = order[2]  # Время сделки (timestamp)
-#
-#         if trade_type == 0:  # Открытие сделки
-#             if ticket not in open_trades:
-#                 open_trades[ticket] = {
-#                     'symbol': symbol,
-#                     'buy_volume': volume,
-#                     'sell_volume': 0,
-#                     'total_profit': 0,
-#                     'open_time': time
-#                 }
-#         elif trade_type == 1:  # Закрытие сделки
-#             for open_ticket, open_trade in sorted(open_trades.items()):
-#                 if open_trade['symbol'] == symbol:
-#                     remaining_buy_volume = open_trade['buy_volume'] - open_trade['sell_volume']
-#                     if volume <= remaining_buy_volume:
-#                         open_trade['sell_volume'] += volume
-#                         # Рассчитываем процент прибыли
-#                         initial_deposit = 1000  # Ваш начальный депозит
-#                         profit_percentage = 100 * float(profit) / initial_deposit
-#                         open_trade['total_profit'] += profit_percentage
-#
-#                         if open_trade['sell_volume'] == open_trade['buy_volume']:
-#                             # Сделка закрыта полностью, добавьте здесь логику сохранения результатов в базу данных
-#                             print(f"Сделка закрыта для {open_ticket}. "
-#                                   f"Куплено: {open_trade['buy_volume']} шт. "
-#                                   f"Продано: {open_trade['sell_volume']} шт. "
-#                                   f"Общий процент прибыли: {open_trade['total_profit']:.3f}% ")
-#                             del open_trades[open_ticket]
-#                             break  # Прерываем цикл, так как закрыли одну из сделок
-#                         else:
-#                             pass
-#                         break
-#                     else:
-#                         print(f"Внимание! Продажа контрактов ({volume} шт.) превышает доступное количество ({remaining_buy_volume} шт.) "
-#                               f"для сделки с {symbol}. Продажа будет произведена только для доступного объема.")
-#                         # Создаем новую сделку, так как разница во времени больше 5 секунд
-#                         open_trades[ticket] = {
-#                             'symbol': symbol,
-#                             'buy_volume': volume,
-#                             'sell_volume': 0,
-#                             'total_profit': 0,
-#                             'open_time': time
-#                         }
-#                         break
-#                         # Можно добавить дополнительную логику, если нужно обработать частичное закрытие сделки
