@@ -83,7 +83,6 @@ async def deposit_set(message: types.Message, state: FSMContext):
     await message.answer(f"Принято\n"
                          f"\n"
                          f"Торговая сессия открыта на сумму {message.text}$", reply_markup=end_session())
-
     scheduler.add_job(position_get, "interval", seconds=5)
 
     await state.clear()

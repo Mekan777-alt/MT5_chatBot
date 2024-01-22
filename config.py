@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from aiogram import Bot, Dispatcher
 import os
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -16,6 +18,7 @@ engine = create_engine('sqlite:///database.sqlite', echo=False)
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 db_session = Session()
+session_start_time = datetime.now().timestamp()
 
 scheduler = AsyncIOScheduler(timezone='UTC')
 
