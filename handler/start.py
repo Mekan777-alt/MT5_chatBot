@@ -1,10 +1,14 @@
-from data.models import User
+import datetime
+
+from aiogram.types import callback_query
+
+from data.models import Session, MessageOrders
 from aiogram import types
 from aiogram import Router, F
 from aiogram.filters import Command
 from context.login_set import LoginSet, DepositSet
 from aiogram.fsm.context import FSMContext
-from config import scheduler, db_session
+from config import scheduler, db_session, bot, channel_id
 from keyboard.markup import start_session, end_session
 from service.mt5 import connect, position_get
 
@@ -18,6 +22,18 @@ async def start(message: types.Message, state: FSMContext):
                          "Введите логин")
 
     await state.set_state(LoginSet.login)
+
+
+@router.message(Command('delete'))
+async def delete(message: types.Message):
+    print(message.text)
+    text = message.text.split()
+    message_order = db_session.query(MessageOrders).filter(MessageOrders.order_id==int(text[1])).first()
+    session_id = db_session.query(Session).filter(Session.session_close == None).first()
+    session_id.profit_session += message_order.profit
+    print(text[1])
+    print(message_order.message_id)
+    await bot.delete_message(chat_id=channel_id, message_id=int(message_order.message_id))
 
 
 @router.message(LoginSet.login)
@@ -42,14 +58,6 @@ async def broker(message: types.Message, state: FSMContext):
 
     data = await state.get_data()
     try:
-        user = db_session.query(User).filter_by(telegram_id=int(message.from_user.id)).first()
-        if not user:
-            add_user = User(telegram_id=message.from_user.id)
-            db_session.add(add_user)
-            db_session.commit()
-        else:
-            user.telegram_id = message.from_user.id
-            db_session.commit()
 
         connecting_message = await message.answer("Выполняется подключение...")
         try:
@@ -86,21 +94,29 @@ async def start_session_command(call: types.CallbackQuery, state: FSMContext):
 @router.message(DepositSet.deposit)
 async def deposit_set(message: types.Message, state: FSMContext):
     await state.update_data(deposit=message.text)
-    user = db_session.query(User).filter_by(telegram_id=message.from_user.id).first()
-    if user:
-        user.deposit = message.text
-        db_session.commit()
+
+    session = Session(session_open=datetime.datetime.now(), deposit=int(message.text))
+
+    db_session.add(session)
+    db_session.commit()
     await message.answer(f"Принято\n"
                          f"\n"
-                         f"Торговая сессия открыта на сумму {message.text}$", reply_markup=end_session())
-    scheduler.add_job(position_get, "interval", seconds=5)
+                         f"Торговая сессия открыта на сумму {message.text}$", reply_markup=end_session(session.id))
+
+    scheduler.add_job(position_get, "interval", seconds=15)
 
     await state.clear()
 
 
-@router.callback_query(F.data == 'end_session')
+@router.callback_query(F.data.startswith('end_session'))
 async def end_session_command(call: types.CallbackQuery):
+    _, session_id = call.data.split(':')
+
+    session = db_session.query(Session).filter(Session.id==session_id).first()
+    session.session_close = datetime.datetime.now()
+    db_session.commit()
+    db_session.query(MessageOrders).delete()
+    db_session.commit()
     await call.message.edit_text("Текущая сессия закрыта\n"
                                  "\n"
                                  "Чтоб начать новую сессию нажмите кнопку ниже", reply_markup=start_session())
-
