@@ -68,7 +68,6 @@ async def position_get():
             pass
         elif len(positions) > 0:
             for position in positions:
-
                 await create_and_check_position(position)
 
         all_position = await get_all_tickets_from_database()
@@ -91,7 +90,6 @@ from data.models import Orders
 
 
 async def process_closed_orders(orders):
-
     session_profit = 0  # Общий процент прибыли с начала сессии
 
     for order in orders:
@@ -107,13 +105,50 @@ async def process_closed_orders(orders):
         if trade_type == 0:
 
             ticket_objects = db_session.query(Orders).filter_by(ticket_id=ticket)
-
+            orders_from_db = db_session.query(Orders).filter_by(position_id=order[7], status=1, is_closed=False).all()
             if ticket_objects.count() == 0:
-
                 order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
-                                         open_order=datetime.fromtimestamp(time))
+                                         open_order=datetime.fromtimestamp(time), status=0)
                 db_session.add(order_to_insert)
                 db_session.commit()
+            else:
+                for order_from_db in orders_from_db:
+                    if volume > 0 and order_from_db.is_closed == False:
+
+                        new_volume = volume
+
+                        volume -= order_from_db.volume
+
+                        if order_from_db.volume - new_volume <= 0:
+                            order_from_db.volume = 0
+                        else:
+                            order_from_db.volume -= new_volume
+
+                        if order_from_db.volume == 0:
+                            order_from_db.is_closed = True
+                            db_session.commit()
+
+                            session_id = db_session.query(Session).filter(Session.session_close == None).first()
+                            count = session_id.counter + 1
+                            session_id.counter += 1
+
+                            profit_percentage = 100 * float(profit) / float(session_id.deposit)
+                            # open_trade['total_profit'] += profit_percentage
+
+                            session_id.profit_session += profit_percentage
+                            db_session.commit()
+                            trade_time = (datetime.fromtimestamp(time) - order_from_db.open_order).seconds
+                            message = f"<b>📣 Сделка #{count} завершена</b>\n\n" \
+                                      f"<b>Время сделки: {trade_time}сек</b>\n" \
+                                      f"<b>{symbol}  {profit_percentage:.2f}%</b>\n\n" \
+                                      f"<b>✅ Результат сессии: {session_id.profit_session:.2f}%</b>"
+                            message_order = await bot.send_message(chat_id=channel_id, text=message, parse_mode='html')
+                            message_id = message_order.message_id
+                            message_orders = MessageOrders(message_id=message_id, order_id=count,
+                                                           profit=profit_percentage)
+                            db_session.add(message_orders)
+                            db_session.commit()
+
             # else:
             #     for ticket_object in ticket_objects:
             #         if ticket_object.ticket_id != ticket:
@@ -130,8 +165,14 @@ async def process_closed_orders(orders):
 
             sell_order = db_session.query(Orders).filter_by(ticket_id=ticket).first()
 
-            if sell_order:
-                pass
+            orders_from_db_buys = db_session.query(Orders).filter_by(position_id=order[7], status=0)
+
+            if orders_from_db_buys.count() == 0 and sell_order is not None:
+
+                order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
+                                         status=1)
+                db_session.add(order_to_insert)
+                db_session.commit()
             else:
                 sell_order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
                                               is_closed=True)
@@ -165,7 +206,7 @@ async def process_closed_orders(orders):
                             trade_time = (datetime.fromtimestamp(time) - order_from_db.open_order).seconds
                             message = f"<b>📣 Сделка #{count} завершена</b>\n\n" \
                                       f"<b>Время сделки: {trade_time}сек</b>\n" \
-                                      f"<b>{symbol} + {profit_percentage:.2f}%</b>\n\n" \
+                                      f"<b>{symbol}  {profit_percentage:.2f}%</b>\n\n" \
                                       f"<b>✅ Результат сессии: {session_id.profit_session:.2f}%</b>"
                             message_order = await bot.send_message(chat_id=channel_id, text=message, parse_mode='html')
                             message_id = message_order.message_id
@@ -173,7 +214,6 @@ async def process_closed_orders(orders):
                                                            profit=profit_percentage)
                             db_session.add(message_orders)
                             db_session.commit()
-
                 orders_from_db = db_session.query(Orders).filter_by(position_id=order[7])
                 flag = True
                 for order in orders_from_db:

@@ -103,7 +103,7 @@ async def deposit_set(message: types.Message, state: FSMContext):
                          f"\n"
                          f"Торговая сессия открыта на сумму {message.text}$", reply_markup=end_session(session.id))
 
-    scheduler.add_job(position_get, "interval", seconds=15)
+    scheduler.add_job(position_get, "interval", seconds=5)
 
     await state.clear()
 
