@@ -22,6 +22,7 @@ class Session(Base):
     session_open = Column(DateTime)
     session_close = Column(DateTime)
     profit_session = Column(Float, default=0.0)
+    profit_commision = Column(Float, default=0.0)
     counter = Column(Integer,default=0)
     deposit = Column(Integer)
 
@@ -36,7 +37,8 @@ class Orders(Base):
     volume = Column(Integer)
     open_order = Column(DateTime)
     status = Column(Integer)
-
+    order_id = Column(Integer)
+    commision = Column(Float, default=0.0)
 
 class MessageOrders(Base):
     __tablename__ = 'message_orders'
@@ -44,5 +46,17 @@ class MessageOrders(Base):
     order_id = Column(Integer)
     message_id = Column(Integer)
     profit = Column(Float)
+    profit_commision = Column(Float)
+
+
+class User(Base):
+    __tablename__ = 'user'
+
+    id = Column(Integer, primary_key=True)
+    login = Column(Integer)
+    password = Column(String)
+    server = Column(String)
+
+
 
 

@@ -9,3 +9,10 @@ class LoginSet(StatesGroup):
 
 class DepositSet(StatesGroup):
     deposit = State()
+
+
+class IDSet(StatesGroup):
+    id = State()
+
+class DeleteIDSet(StatesGroup):
+    id=State()

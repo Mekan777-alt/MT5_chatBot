@@ -99,56 +99,94 @@ async def process_closed_orders(orders):
         volume = order[9]  # Объем сделки
         profit = order[13]  # Прибыль
         time = order[2]  # Время сделки (timestamp)
+        order_id = order[1]
+        position_id = order[7]
+        commision = order[11]
 
         ticket_to_delete = db_session.query(Ticket).filter_by(position=order[7]).first()
+        print(order)
+        get_order = db_session.query(Orders).filter_by(order_id=order_id).first()
 
-        if trade_type == 0:
+        if get_order is None:
+            order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
+                                     open_order=datetime.fromtimestamp(time), status=trade_type, order_id=order_id
+                                     , commision=commision)
+            db_session.add(order_to_insert)
+            db_session.commit()
+        if trade_type == 0 and get_order is None:
 
-            ticket_objects = db_session.query(Orders).filter_by(ticket_id=ticket)
             orders_from_db = db_session.query(Orders).filter_by(position_id=order[7], status=1, is_closed=False).all()
-            if ticket_objects.count() == 0:
-                order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
-                                         open_order=datetime.fromtimestamp(time), status=0)
-                db_session.add(order_to_insert)
+            if len(orders_from_db) > 0:
+                get_order = db_session.query(Orders).filter_by(order_id=order_id).first()
+                get_order.is_closed = True
                 db_session.commit()
-            else:
                 for order_from_db in orders_from_db:
                     if volume > 0 and order_from_db.is_closed == False:
-
+                        commision_for_one_volume = commision / volume
                         new_volume = volume
 
                         volume -= order_from_db.volume
+
+                        different = new_volume - volume
 
                         if order_from_db.volume - new_volume <= 0:
                             order_from_db.volume = 0
                         else:
                             order_from_db.volume -= new_volume
+                            db_session.commit()
 
                         if order_from_db.volume == 0:
                             order_from_db.is_closed = True
                             db_session.commit()
 
-                            session_id = db_session.query(Session).filter(Session.session_close == None).first()
+                            session_id = (db_session.query(Session)
+                                          .filter(Session.session_close == None)
+                                          .first())
                             count = session_id.counter + 1
                             session_id.counter += 1
 
-                            profit_percentage = 100 * float(profit) / float(session_id.deposit)
+                            total_profit_with_commision = (profit
+                                                           + commision
+                                                           + commision_for_one_volume * different)
+
+                            profit_percentage = (100 * float(total_profit_with_commision)
+                                                 / float(session_id.deposit))
                             # open_trade['total_profit'] += profit_percentage
 
-                            session_id.profit_session += profit_percentage
+                            total_commision_for_closed_order = (commision_for_one_volume * different +
+                                                                order_from_db.commision)
+
+                            profit_percentage_without_commission = (
+                                    100 * float(profit)
+                                    / float(session_id.deposit))
+                            session_id.profit_commision += profit_percentage
+
+                            session_id.profit_session += profit_percentage_without_commission
                             db_session.commit()
                             trade_time = (datetime.fromtimestamp(time) - order_from_db.open_order).seconds
                             message = f"<b>📣 Сделка #{count} завершена</b>\n\n" \
                                       f"<b>Время сделки: {trade_time}сек</b>\n" \
                                       f"<b>{symbol}  {profit_percentage:.2f}%</b>\n\n" \
-                                      f"<b>✅ Результат сессии: {session_id.profit_session:.2f}%</b>"
+                                      f"<b>✅ Результат сессии: {session_id.profit_commision:.2f}% ({session_id.profit_session:.2f}%)</b>\n"
+
+                                      # f"<b>✅ Результат сессии + ком: {session_id.profit_commision:.3f}%</b>"
                             message_order = await bot.send_message(chat_id=channel_id, text=message, parse_mode='html')
                             message_id = message_order.message_id
                             message_orders = MessageOrders(message_id=message_id, order_id=count,
                                                            profit=profit_percentage)
                             db_session.add(message_orders)
                             db_session.commit()
-
+            orders_from_db = db_session.query(Orders).filter_by(position_id=order[7])
+            flag = True
+            for order in orders_from_db:
+                if order.is_closed:
+                    pass
+                else:
+                    flag = False
+                    break
+            if flag:
+                db_session.delete(ticket_to_delete)
+                db_session.commit()
             # else:
             #     for ticket_object in ticket_objects:
             #         if ticket_object.ticket_id != ticket:
@@ -159,55 +197,85 @@ async def process_closed_orders(orders):
             #             db_session.add(order_to_insert)
             #             db_session.commit()
 
-        elif trade_type == 1:
+        elif trade_type == 1 and get_order is None:
 
-            orders_from_db = db_session.query(Orders).filter_by(position_id=order[7])
+            # orders_from_db = db_session.query(Orders).filter_by(position_id=order[7])
+            #
+            # sell_order = db_session.query(Orders).filter_by(ticket_id=ticket).first()
+            #
+            # orders_from_db_buys = db_session.query(Orders).filter_by(position_id=order[7], status=0)
 
-            sell_order = db_session.query(Orders).filter_by(ticket_id=ticket).first()
+            # if sell_order is None:
+            #     order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
+            #                              status=1)
+            #     db_session.add(order_to_insert)
+            #     db_session.commit()
 
-            orders_from_db_buys = db_session.query(Orders).filter_by(position_id=order[7], status=0)
-
-            if orders_from_db_buys.count() == 0 and sell_order is not None:
-
-                order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
-                                         status=1)
-                db_session.add(order_to_insert)
-                db_session.commit()
-            else:
-                sell_order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
-                                              is_closed=True)
-                db_session.add(sell_order_to_insert)
+            # ticket_objects = db_session.query(Orders).filter_by(ticket_id=ticket)
+            orders_from_db = db_session.query(Orders).filter_by(position_id=order[7], status=0, is_closed=False).all()
+            # if ticket_objects.count() == 0:
+            #     order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
+            #                              open_order=datetime.fromtimestamp(time), status=1)
+            #     db_session.add(order_to_insert)
+            #     db_session.commit()
+            if len(orders_from_db) > 0:
+                # sell_order_to_insert = Orders(ticket_id=ticket, position_id=order[7], volume=volume,
+                #                               is_closed=True, order_id=order_id)
+                # db_session.add(sell_order_to_insert)
+                # db_session.commit()
+                get_order = db_session.query(Orders).filter_by(order_id=order_id).first()
+                get_order.is_closed = True
                 db_session.commit()
                 for order_from_db in orders_from_db:
-                    if volume > 0 and order_from_db.is_closed == False:
 
+                    if volume > 0 and order_from_db.is_closed == False:
+                        commision_for_one_volume = commision / volume
                         new_volume = volume
 
                         volume -= order_from_db.volume
+
+                        different = new_volume - volume
 
                         if order_from_db.volume - new_volume <= 0:
                             order_from_db.volume = 0
                         else:
                             order_from_db.volume -= new_volume
+                            db_session.commit()
 
                         if order_from_db.volume == 0:
                             order_from_db.is_closed = True
                             db_session.commit()
 
-                            session_id = db_session.query(Session).filter(Session.session_close == None).first()
+                            session_id = (db_session.query(Session)
+                                          .filter(Session.session_close == None)
+                                          .first())
                             count = session_id.counter + 1
                             session_id.counter += 1
 
-                            profit_percentage = 100 * float(profit) / float(session_id.deposit)
+                            total_profit_with_commision = (profit
+                                                           + commision
+                                                           + commision_for_one_volume * different)
+
+                            profit_percentage = (100 * float(total_profit_with_commision)
+                                                 / float(session_id.deposit))
                             # open_trade['total_profit'] += profit_percentage
 
-                            session_id.profit_session += profit_percentage
+                            total_commision_for_closed_order = (commision_for_one_volume * different +
+                                                                order_from_db.commision)
+
+                            profit_percentage_without_commission = (
+                                        100 * float(profit)
+                                        / float(session_id.deposit))
+                            session_id.profit_commision += profit_percentage
+
+                            session_id.profit_session += profit_percentage_without_commission
                             db_session.commit()
                             trade_time = (datetime.fromtimestamp(time) - order_from_db.open_order).seconds
                             message = f"<b>📣 Сделка #{count} завершена</b>\n\n" \
                                       f"<b>Время сделки: {trade_time}сек</b>\n" \
                                       f"<b>{symbol}  {profit_percentage:.2f}%</b>\n\n" \
-                                      f"<b>✅ Результат сессии: {session_id.profit_session:.2f}%</b>"
+                                      f"<b>✅ Результат сессии: {session_id.profit_commision:.2f}% ({session_id.profit_session:.2f}%)</b>\n"
+                                      # f"<b>✅ Результат сессии + ком: {session_id.profit_commision:.2f}%</b>"
                             message_order = await bot.send_message(chat_id=channel_id, text=message, parse_mode='html')
                             message_id = message_order.message_id
                             message_orders = MessageOrders(message_id=message_id, order_id=count,

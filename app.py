@@ -2,6 +2,7 @@ import asyncio
 import logging
 from config import bot, dp, scheduler
 from handler import start
+import numpy
 
 
 async def on_shutdown(dp):
